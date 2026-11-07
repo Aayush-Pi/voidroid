@@ -15,6 +15,14 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
 
         with conn:
             data = conn.recv(1024)
-            if data:
-                message = data.decode('utf-8').strip()
-                subprocess.run(["notify-send", "voidroid", message])
+            message = data.decode('utf-8').strip()
+            if not data:
+                continue
+            if "|" in message:
+                title, body = message.split("|",1)
+            else:
+                title, body = "voidroid", message
+
+            subprocess.run(["notify-send", title, body])
+
+                
