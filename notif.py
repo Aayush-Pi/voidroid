@@ -14,15 +14,20 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         conn, addr = s.accept()
 
         with conn:
-            data = conn.recv(1024)
-            message = data.decode('utf-8').strip()
+            data = conn.recv(1024).decode('utf-8').strip()
+            message = data.split("|", 2)
             if not data:
                 continue
-            if "|" in message:
-                title, body = message.split("|",1)
+            if len(message) == 3:
+                appname, title, body = message
+            elif len(message) == 2:
+                appname = "voidroid"
+                title, body = message
             else:
-                title, body = "voidroid", message
+                appname = "voidroid"
+                title = "Notifictaion"
+                body = message              
 
-            subprocess.run(["notify-send", title, body])
+            subprocess.run(["notify-send", "-a", appname , "-i" , appname, title , body])
 
                 
