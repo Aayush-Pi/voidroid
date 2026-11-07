@@ -27,7 +27,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 appname = "voidroid"
                 title = "Notifictaion"
                 body = message              
-
-            subprocess.run(["notify-send", "-a", appname , "-i" , appname, title , body])
+            
+            subprocess.run(["notify-send", "-a", appname , "-i" , appname.lower(), title , body])
 
                 
