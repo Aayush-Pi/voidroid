@@ -1,0 +1,11 @@
+[Unit]
+Description=Voidroid ADB Reverse Port Forwarder
+After=voidroid.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sleep 1
+ExecStart=/usr/bin/adb reverse tcp:5000 tcp:5000
+
+[Install]
+WantedBy=default.target

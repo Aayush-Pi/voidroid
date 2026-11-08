@@ -1,0 +1,2 @@
+# Universal Android ADB USB trigger (matches class: ff, subclass: 42, protocol: 01)
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{bDeviceClass}=="00|ff", TAG+="systemd", ENV{SYSTEMD_USER_WANTS}="voidroid-reverse.service"
