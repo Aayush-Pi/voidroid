@@ -2,7 +2,7 @@
 
 Android notifications on your Linux desktop, over a USB cable. Raw TCP sockets and ADB reverse tunneling. No cloud, no account, no third-party services.
 
-> **Status:** `v0.2.0-alpha`. It works, the edges are rough. See the [roadmap](#roadmap) and the [changelog](#changelog).
+> **Status:** `v0.3.0-alpha`. It works, the edges are rough. See the [roadmap](#roadmap) and the [changelog](#changelog).
 
 ---
 
@@ -39,6 +39,11 @@ voidroid/
 ├── .gitignore
 ├── server/
 │   └── notif.py                # Linux TCP listener & notification dispatcher
+├── system/
+│   ├── install.sh                  # Background service installer (run with bash)
+│   ├── voidroid.service            # systemd user unit for the listener
+│   ├── voidroid-reverse.service    # systemd user unit for `adb reverse`
+│   └── 99-voidroid.rules           # Static udev rule (install.sh generates a vendor-specific one instead)
 └── android/
     ├── gradlew
     ├── build.gradle
@@ -105,7 +110,7 @@ Any notification arriving on your device will now pop up natively on your deskto
 
 ## Easy Install (No Build Required)
 
-Don't want to build the app? Use the prebuilt APK from the [v0.2.0-alpha release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.2.0-alpha).
+Don't want to build the app? Use the prebuilt APK from the [v0.3.0-alpha release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.3.0-alpha).
 
 1. **Download the APK.** Open the release page on your phone (or download it on your computer) and grab the `.apk` file.
 2. **Install it.** Either open the file on the phone and allow **Install unknown apps** when prompted, or install over USB:
@@ -139,6 +144,54 @@ With the listener running, send a fake notification from your computer:
 adb shell cmd notification post -t "Voidroid test" voidroid "It works"
 ```
 
+## Automatic Background Service
+
+Run the listener as a background daemon that starts at login and sets up the ADB tunnel the moment your phone is plugged in over USB. No terminal needed.
+
+### Install
+
+Clone the repo to `~/voidroid` (the service file expects it there), plug in your phone with USB debugging enabled, then run:
+
+```bash
+bash system/install.sh
+```
+
+Use `bash`, not `sh`: the script relies on Bash features that plain `sh` or `dash` do not support.
+
+The installer:
+
+1. Detects your phone's USB vendor ID through `adb`. If detection fails, it asks you to type it in (find it with `lsusb`).
+2. Writes a udev rule for that vendor to `/etc/udev/rules.d/99-voidroid.rules` (asks for `sudo`). The rule starts `voidroid-reverse.service` whenever that device is plugged in.
+3. Copies `voidroid.service` and `voidroid-reverse.service` into `~/.config/systemd/user/`.
+4. Enables and starts `voidroid.service`, so the listener runs in the background now and at every login. It restarts automatically if it crashes.
+5. Reloads the udev rules.
+
+From then on, plugging in the phone runs `adb reverse tcp:5000 tcp:5000` for you.
+
+### Check status and logs
+
+```bash
+systemctl --user status voidroid.service
+journalctl --user -u voidroid -f
+```
+
+If the tunnel does not come up after plugging in, check the other unit:
+
+```bash
+systemctl --user status voidroid-reverse.service
+```
+
+> If the background service is running, it already holds port 5000. Stop it with `systemctl --user stop voidroid.service` before running `python3 server/notif.py` by hand.
+
+### Uninstall
+
+```bash
+systemctl --user disable --now voidroid.service
+rm ~/.config/systemd/user/voidroid.service ~/.config/systemd/user/voidroid-reverse.service
+sudo rm /etc/udev/rules.d/99-voidroid.rules
+sudo udevadm control --reload-rules
+```
+
 ## Protocol Specification
 
 The Android client pushes a single UTF-8 stream per notification event:
@@ -168,13 +221,19 @@ The Android client pushes a single UTF-8 stream per notification event:
 | Nothing appears on the desktop | Re-run `adb reverse tcp:5000 tcp:5000`. The tunnel drops whenever the cable is unplugged or `adb` restarts. |
 | `adb devices` shows `unauthorized` | Unlock the phone and accept the USB debugging prompt. |
 | `adb devices` shows nothing | Try another cable or port, and make sure the USB mode isn't "charging only". |
-| "Address already in use" on start | Another process holds port 5000. Find it with `ss -ltnp \| grep 5000`. |
+| "Address already in use" on start | Another process holds port 5000. If you installed the background service, that is it: run `systemctl --user stop voidroid.service` first. Otherwise find it with `ss -ltnp \| grep 5000`. |
+| Nothing appears after plugging in, with the background service installed | Check `systemctl --user status voidroid.service` and `voidroid-reverse.service`. Confirm `adb devices` lists the phone as `device`, and that the vendor ID in `/etc/udev/rules.d/99-voidroid.rules` matches `lsusb`. |
 | Notification access toggle is greyed out | Use **Allow restricted settings** (see Easy Install). |
 | Notifications stop after a while | Exempt Voidroid from battery optimization in Android settings. |
-| Garbled or missing banner and title after updating | The app and `server/notif.py` are from different releases. Update both to `v0.2.0-alpha`. |
+| Garbled or missing banner and title after updating | The app and `server/notif.py` are from different releases. Update both to the same release (`v0.2.0-alpha` or later). |
 | Generic icon for an app | The daemon looks for an icon named after the lowercase app name (for example `whatsapp`). If your icon theme has none, the desktop shows its default icon. |
 
 ## Changelog
+
+### v0.3.0-alpha
+
+- **Background service:** `system/install.sh` installs a `systemd --user` service for the listener and a udev rule that runs `adb reverse` automatically when the phone is plugged in.
+- **Android app:** unchanged since `v0.2.0-alpha`.
 
 ### v0.2.0-alpha
 
@@ -189,7 +248,7 @@ The Android client pushes a single UTF-8 stream per notification event:
 
 ## Roadmap
 
-- [ ] Linux systemd user service + udev auto-connect hook
+- [x] Linux systemd user service + udev auto-connect hook
 - [ ] Click actions on desktop notifications (dismiss, open, reply)
 - [ ] Direct D-Bus integration (`org.freedesktop.Notifications`) to remove `notify-send` subshell overhead
 - [ ] Screen mirroring and device control by wrapping [scrcpy](https://github.com/Genymobile/scrcpy)
