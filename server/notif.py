@@ -9,10 +9,10 @@ def launch_scrcpy(pkg_name, app_name):
     """Spawns an ephemeral, focused scrcpy instance."""
     cmd = [
         "scrcpy",
-        f"--start-app={pkg_name}",
+        "--start-app={pkg_name}",
         "--stay-awake",
         "--turn-screen-off",
-        f"--window-title=Voidroid: {app_name}"
+        "--window-title=Voidroid"
     ]
     subprocess.Popen(cmd)
 
