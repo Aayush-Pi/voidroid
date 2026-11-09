@@ -26,18 +26,23 @@ else
     fi
 fi
 
-# Dynamically write the udev rule with the detected vendor ID
+# Dynamically write the udev rule with the detected vendor ID using +=
 echo "[*] Generating udev rule for vendor: $VENDOR_ID..."
-RULE_CONTENT="ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$VENDOR_ID\", TAG+=\"systemd\", ENV{SYSTEMD_USER_WANTS}=\"voidroid-reverse.service\""
+RULE_CONTENT="ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$VENDOR_ID\", TAG+=\"systemd\", ENV{SYSTEMD_USER_WANTS}+=\"voidroid-reverse.service\""
 echo "$RULE_CONTENT" | sudo tee /etc/udev/rules.d/99-voidroid.rules > /dev/null
 
 echo "[*] Setting up systemd services..."
 mkdir -p "$USER_SYSTEMD_DIR"
+cp "$REPO_DIR/system/adb-server.service" "$USER_SYSTEMD_DIR/"
 cp "$REPO_DIR/system/voidroid.service" "$USER_SYSTEMD_DIR/"
 cp "$REPO_DIR/system/voidroid-reverse.service" "$USER_SYSTEMD_DIR/"
 
 systemctl --user daemon-reload
+
+# Enable persistent background units
+systemctl --user enable --now adb-server.service
 systemctl --user enable --now voidroid.service
+systemctl --user enable voidroid-reverse.service
 
 sudo udevadm control --reload-rules
 sudo udevadm trigger

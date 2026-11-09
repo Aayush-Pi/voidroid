@@ -1,0 +1,11 @@
+[Unit]
+Description=Persistent ADB Server Daemon
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/adb start-server
+ExecStop=/usr/bin/adb kill-server
+Restart=always
+
+[Install]
+WantedBy=default.target

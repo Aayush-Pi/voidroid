@@ -1,20 +1,32 @@
 import socket
 import subprocess
 import threading
+import os
 
 HOST = "127.0.0.1"
 PORT = 5000
 
 def launch_scrcpy(pkg_name, app_name):
     """Spawns an ephemeral, focused scrcpy instance."""
+    env = os.environ.copy()
+    
+    # Ensure Wayland and X11 display paths are present
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+    env.setdefault("DISPLAY", ":0")
+
     cmd = [
         "scrcpy",
         "--start-app={pkg_name}",
         "--stay-awake",
         "--turn-screen-off",
-        "--window-title=Voidroid"
+        "--video-codec=h264",
+        "--window-title=voidroid:scrcpy"
     ]
     subprocess.Popen(cmd)
+    # log file
+    with open("/tmp/scrcpy_voidroid.log", "a") as log:
+        subprocess.Popen(cmd, env=env, stdout=log, stderr=log)
 
 def dispatch_notification(pkg_name, app_name, title, body):
     """Fires notify-send and listens for button click."""
