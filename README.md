@@ -1,85 +1,67 @@
-# Voidroid
+# voidroid
 
-Android notifications on your Linux desktop, over a USB cable. Click **Open App** on a notification to mirror just that app from your phone in its own window. Raw TCP sockets and ADB reverse tunneling. No cloud, no account, no third-party services.
+voidroid sends your Android notifications to your Linux desktop over a USB cable. Click **Open App** on a notification to mirror just that app from your phone in its own window. It uses a plain TCP socket through an `adb reverse` tunnel, plus scrcpy for mirroring. No cloud, no account, no third-party services.
 
-> **Status:** `v0.4.0-alpha`. It works, the edges are rough. See the [roadmap](#roadmap) and the [changelog](#changelog).
+> **Status:** `v0.6.0-beta.1` (beta). It works, but expect rough edges. See the [roadmap](#roadmap) and the [changelog](CHANGELOG.md).
 >
 > **Platform:** Linux only for now. Windows support is planned.
 
----
+## Features
 
-## Architecture Overview
+- Phone notifications appear as native desktop notifications, with the right app name and icon from your system theme
+- Chat apps (WhatsApp, Telegram, Signal and similar) show the actual latest message, not a "2 new messages" summary
+- **Open App** button on every notification: mirrors that app in a single scrcpy window, keeps your phone's screen off, and lets you use your keyboard and mouse
+- Click **Open App** on another notification and the same window switches to that app
+- Runs as a background service that starts at login, and the USB tunnel sets itself up when you plug the phone in
+- Android app with a live permission status, a "Send test notification" button, and a shortcut to battery optimization settings
+- Everything travels over the USB cable through `127.0.0.1`
 
-```text
-[ Android OS Notification Event ]
-                │
-                ▼
-      NotificationService.kt
-(Filters summaries, extracts package, app, sender and the latest
- message, including messaging-style chat batches)
-                │
-                ▼
-       TCP Socket (127.0.0.1:5000)
-                │
-                ▼
-   [ ADB Reverse Tunnel (USB) ]
-                │
-                ▼
-       Linux Daemon (notif.py)
-   (Binds 127.0.0.1:5000, parses stream,
-    handles each notification in its own thread)
-                │
-                ▼
-    libnotify / notify-send (Desktop)
-   (App banner, icon, "Open App" button)
-                │
-                │  click "Open App"
-                ▼
-   scrcpy --start-app=<PackageName>
-   (mirrors only that app, phone screen stays off)
+## Quick start
+
+### 1. On the phone
+
+1. Enable Developer options and **USB debugging**.
+2. Install the APK from the [latest release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.6.0-beta.1). Open the file on the phone and allow **Install unknown apps** when asked, or install over USB:
+
+   ```bash
+   adb install -r voidroid-v0.6.0-beta.1.apk
+   ```
+
+3. Open **voidroid** and tap the permission prompt to grant **Notification Access**.
+4. Tap **Battery Optimization** and set voidroid to **Unrestricted** (or "Don't optimize"). Without this, many phones put the listener to sleep.
+
+> **Android 13+:** if the Notification Access toggle is greyed out because the app was sideloaded, go to **Settings → Apps → voidroid → ⋮ (top right) → Allow restricted settings**, then try again.
+
+### 2. On the laptop
+
+Install the requirements (Debian/Ubuntu shown, see [Requirements](#requirements) for other distros and for scrcpy), then clone the repo to `~/voidroid` and run the installer:
+
+```bash
+sudo apt install adb libnotify-bin python3
+git clone https://github.com/Aayush-Pi/voidroid.git ~/voidroid
+cd ~/voidroid
+bash system/install.sh
 ```
 
-## Project Structure
+### 3. Test it
 
-```text
-voidroid/
-├── README.md
-├── .gitignore
-├── server/
-│   └── notif.py                # Linux TCP listener & notification dispatcher
-├── system/
-│   ├── install.sh                  # Background service installer (run with bash)
-│   ├── voidroid.service            # systemd user unit for the listener
-│   ├── voidroid-reverse.service    # systemd user unit for `adb reverse`
-│   └── 99-voidroid.rules           # Static udev rule (install.sh generates a vendor-specific one instead)
-└── android/
-    ├── gradlew
-    ├── build.gradle
-    └── app/
-        └── src/main/java/com/example/voidroid/
-            ├── MainActivity.kt        # Direct intent launcher for permission toggle
-            └── NotificationService.kt # Notification listener & socket sender
-```
+Plug in the phone and tap **Send test notification** in the app. A notification should appear on your desktop. If it doesn't, see [Troubleshooting](#troubleshooting-and-logs).
 
-## Prerequisites
+## Requirements
 
-**Host (Linux):**
+**Linux host**
 
 - Python 3
 - `adb` (Android Debug Bridge)
 - `libnotify-bin` (`notify-send`)
-- `scrcpy` **3.0 or newer** (needed for the Open App button, because it uses `--start-app`)
+- `scrcpy` **3.0 or newer** (the Open App button uses `--start-app`, which was added in 3.0)
+- `systemd` user services, if you want the background service
 
-**Android device:**
+**Android phone**
 
 - Android 8.0+ (API level 26+)
-- USB Debugging enabled
-
-On Debian/Ubuntu, install the basics:
-
-```bash
-sudo apt install adb libnotify-bin python3
-```
+- USB debugging enabled
+- A USB cable that carries data, not a charge-only cable
 
 ### Installing scrcpy
 
@@ -110,150 +92,125 @@ sudo apt install -t trixie-backports scrcpy
 
 If `scrcpy --version` still reports something older than 3.0, use the static build instead.
 
-> **Upgrading from an earlier release?** The wire format changed in `v0.4.0-alpha`, so the app and the daemon must both be updated together. An old app talking to the new `server/notif.py` (or the reverse) will not work. Pull the latest repo, install the new APK, and install scrcpy as above. If you use the [background service](#automatic-background-service), also run `systemctl --user restart voidroid.service` after pulling so the daemon runs the new code.
-
-## Quick Start (Build From Source)
-
-### 1. Build & Install Android Client
-
-From the repository root:
-
-```bash
-git clone https://github.com/Aayush-Pi/voidroid.git
-cd voidroid/android
-./gradlew assembleDebug
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-Open the Voidroid stub on your phone and tap **Enable Notification Access** to grant listener permissions.
-
-### 2. Forward the Port via ADB
-
-Set up loopback routing from the Android device across the USB link to the host machine:
-
-```bash
-adb reverse tcp:5000 tcp:5000
-```
-
-### 3. Start the Linux Listener
-
-Run the server daemon on your workstation:
-
-```bash
-cd ..
-python3 server/notif.py
-```
-
-Any notification arriving on your device will now pop up natively on your desktop.
-
-## Easy Install (No Build Required)
-
-Don't want to build the app? Use the prebuilt APK from the [v0.4.0-alpha release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.4.0-alpha).
-
-1. **Download the APK.** Open the release page on your phone (or download it on your computer) and grab the `.apk` file.
-2. **Install it.** Either open the file on the phone and allow **Install unknown apps** when prompted, or install over USB:
-
-   ```bash
-   adb install -r path/to/downloaded.apk
-   ```
-
-3. **Grant access.** Open **Voidroid**, tap **Enable Notification Access**, and switch Voidroid on.
-4. **Get the listener.**
-
-   ```bash
-   git clone https://github.com/Aayush-Pi/voidroid.git
-   cd voidroid
-   ```
-
-5. **Install scrcpy 3.0 or newer** (see [Installing scrcpy](#installing-scrcpy)).
-6. **Connect and run.** With USB debugging on and the phone plugged in:
-
-   ```bash
-   adb reverse tcp:5000 tcp:5000
-   python3 server/notif.py
-   ```
-
-> **Android 13+:** if the notification access toggle is greyed out because the app was sideloaded, go to **Settings → Apps → Voidroid → ⋮ (top right) → Allow restricted settings**, then try again.
-
-### Test it
-
-With the listener running, send a fake notification from your computer:
-
-```bash
-adb shell cmd notification post -t "Voidroid test" voidroid "It works"
-```
-
-## Open App (Screen Mirroring)
+## Using voidroid
 
 Every desktop notification has an **Open App** button. Click it and the daemon starts scrcpy for the app that sent the notification:
 
 ```bash
-scrcpy --start-app=<PackageName> --stay-awake --turn-screen-off --window-title="Voidroid: <AppName>"
+scrcpy --start-app=<PackageName> --stay-awake --turn-screen-off --window-title="voidroid: <AppName>"
 ```
 
 - The app opens in its own scrcpy window, and you control it with your desktop keyboard and mouse.
 - The phone's physical screen stays off.
 - The button disappears after 7 seconds, along with the notification.
-- Each notification is handled in its own thread, so waiting for a click never blocks the next notification from arriving.
+- Only one mirror window is ever open. If you click **Open App** on another notification while a window is already running, the daemon does not start a second scrcpy. It switches the existing session to that app with `adb shell monkey -p <PackageName> -c android.intent.category.LAUNCHER 1`, so the video stream keeps running.
+- Each notification is handled in its own thread, so waiting for a click never blocks the next notification.
 
-### Limitations
+**Limitations**
 
 - If an app has no launchable main activity (some internal system dialogs, for example), `scrcpy --start-app` may not be able to open that view.
 - If the phone is locked with a PIN, pattern, or biometric, you need to unlock it once inside the scrcpy window before the app shows.
-- Set Voidroid's battery optimization to **Unrestricted** in Android app settings. Some manufacturers' battery managers (One UI, MIUI and similar) otherwise put the notification listener to sleep.
-- Requires scrcpy 3.0 or newer.
+- Needs scrcpy 3.0 or newer.
 
-## Automatic Background Service
+## Background service
 
-Run the listener as a background daemon that starts at login and sets up the ADB tunnel the moment your phone is plugged in over USB. No terminal needed.
-
-### Install
-
-Clone the repo to `~/voidroid` (the service file expects it there), plug in your phone with USB debugging enabled, then run:
+The installer sets voidroid up as a background service that starts at login and builds the USB tunnel the moment you plug your phone in.
 
 ```bash
 bash system/install.sh
 ```
 
-Use `bash`, not `sh`: the script relies on Bash features that plain `sh` or `dash` do not support.
+Run it from a clone at `~/voidroid` (the service file expects the repo there). Use `bash`, not `sh`: the script relies on Bash features that plain `sh` or `dash` do not support.
 
 The installer:
 
 1. Detects your phone's USB vendor ID through `adb`. If detection fails, it asks you to type it in (find it with `lsusb`).
 2. Writes a udev rule for that vendor to `/etc/udev/rules.d/99-voidroid.rules` (asks for `sudo`). The rule starts `voidroid-reverse.service` whenever that device is plugged in.
-3. Copies `voidroid.service` and `voidroid-reverse.service` into `~/.config/systemd/user/`.
-4. Enables and starts `voidroid.service`, so the listener runs in the background now and at every login. It restarts automatically if it crashes.
-5. Reloads the udev rules.
+3. Copies three units into `~/.config/systemd/user/` and enables them (table below).
+4. Reloads the udev rules.
 
-From then on, plugging in the phone runs `adb reverse tcp:5000 tcp:5000` for you.
+| Unit | What it does |
+|------|--------------|
+| `adb-server.service` | Keeps one `adb` server running (port 5037) for the whole desktop session. Without it, the short-lived reverse service would start its own temporary `adb` server and take it down on exit, dropping the tunnel |
+| `voidroid.service` | Runs the listener (`server/notif.py`) in the background and restarts it if it crashes |
+| `voidroid-reverse.service` | Runs `adb reverse tcp:5000 tcp:5000` when the phone is plugged in |
 
-### Check status and logs
+Check that everything is running:
 
 ```bash
 systemctl --user status voidroid.service
-journalctl --user -u voidroid -f
-```
-
-If the tunnel does not come up after plugging in, check the other unit:
-
-```bash
 systemctl --user status voidroid-reverse.service
+systemctl --user status adb-server.service
 ```
 
 > If the background service is running, it already holds port 5000. Stop it with `systemctl --user stop voidroid.service` before running `python3 server/notif.py` by hand.
 
-### Uninstall
+**Uninstall**
 
 ```bash
-systemctl --user disable --now voidroid.service
-rm ~/.config/systemd/user/voidroid.service ~/.config/systemd/user/voidroid-reverse.service
+systemctl --user disable --now voidroid.service adb-server.service
+rm ~/.config/systemd/user/voidroid.service ~/.config/systemd/user/voidroid-reverse.service ~/.config/systemd/user/adb-server.service
 sudo rm /etc/udev/rules.d/99-voidroid.rules
 sudo udevadm control --reload-rules
 ```
 
-## Protocol Specification
+### Running without the background service
 
-The Android client pushes a single UTF-8 stream per notification event over the loopback socket `127.0.0.1:5000`, tunneled to the host by `adb reverse tcp:5000 tcp:5000`:
+If you would rather run things by hand, plug in the phone and run:
+
+```bash
+adb reverse tcp:5000 tcp:5000
+python3 server/notif.py
+```
+
+`adb reverse` is cleared when the cable is unplugged, so run the first command again after reconnecting.
+
+### Building the Android app from source
+
+You do not need this if you installed the APK from a release.
+
+```bash
+cd android
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+## How it works
+
+The Android app listens for notifications and sends one line per notification to `127.0.0.1:5000` on the phone. `adb reverse` forwards that port through the USB cable to port 5000 on your laptop, where the daemon (`server/notif.py`) reads the line, shows it with `notify-send`, and adds an **Open App** button. Clicking the button starts scrcpy for that app.
+
+```text
+[ Android OS Notification Event ]
+                │
+                ▼
+      NotificationService.kt
+(Filters summaries, extracts package, app, sender and the latest
+ message, including messaging-style chat batches)
+                │
+                ▼
+       TCP Socket (127.0.0.1:5000)
+                │
+                ▼
+   [ ADB Reverse Tunnel (USB) ]
+                │
+                ▼
+       Linux Daemon (notif.py)
+   (Binds 127.0.0.1:5000, parses stream,
+    handles each notification in its own thread)
+                │
+                ▼
+    libnotify / notify-send (Desktop)
+   (App banner, icon, "Open App" button)
+                │
+                │  click "Open App"
+                ▼
+   scrcpy --start-app=<PackageName>
+   (one window, phone screen stays off)
+```
+
+### Protocol
+
+The Android client pushes a single UTF-8 stream per notification:
 
 ```text
 <PackageName>|<AppName>|<Title>|<MessageBody>
@@ -266,53 +223,74 @@ The Android client pushes a single UTF-8 stream per notification event over the 
 | `Title` | The sender or group conversation title (`EXTRA_TITLE` or `EXTRA_CONVERSATION_TITLE`) |
 | `MessageBody` | The message text, taken from `MessagingStyle` bundles, `EXTRA_TEXT_LINES`, or a big-text fallback |
 
-- **Delimiter:** `|` separates the four fields.
 - **Banner and icon:** the daemon sets the banner with `notify-send -a <AppName>` and resolves the icon with `notify-send -i <lowercase_app>`, so notifications use your system icon theme.
-- **Open App:** the daemon passes `PackageName` to `scrcpy --start-app`, and shows `AppName` in the scrcpy window title.
-- **Messaging chats:** for apps that use messaging-style notifications (WhatsApp, Telegram, Signal and similar), the client reads `Notification.EXTRA_MESSAGING_STYLE` (the `android.messages` array) and `EXTRA_TEXT_LINES`, and forwards the exact latest incoming message. Rapid messages in the same chat no longer collapse into a generic summary like "2 new messages".
+- **Messaging chats:** for apps that use messaging-style notifications, the client reads `Notification.EXTRA_MESSAGING_STYLE` (the `android.messages` array) and `EXTRA_TEXT_LINES`, and forwards the exact latest incoming message.
 - **Deduplication:** the client drops a notification only when the same message text arrives again within a 1000 ms window. Distinct consecutive messages from the same sender each get their own desktop notification, while group-summary and update spam is still filtered out.
+- **Older formats:** the daemon also accepts three-field, two-field, and plain-text messages as a fallback. **Open App** needs the package name, so it only works for four-field messages.
 
-> **Previous formats (no longer accepted):** `<AppName>|<Title>|<MessageBody>` in `v0.2.0-alpha` to `v0.3.0-alpha`, and `<DisplayTitle>|<MessageBody>` in `v0.1.0-alpha`.
+### Project structure
 
-## Troubleshooting
+```text
+voidroid/
+├── README.md
+├── CHANGELOG.md
+├── .gitignore
+├── server/
+│   └── notif.py                    # Linux TCP listener & notification dispatcher
+├── system/
+│   ├── install.sh                  # Background service installer (run with bash)
+│   ├── adb-server.service          # systemd user unit that keeps the adb server running
+│   ├── voidroid.service            # systemd user unit for the listener
+│   ├── voidroid-reverse.service    # systemd user unit for `adb reverse`
+│   └── 99-voidroid.rules           # Static udev rule (install.sh generates a vendor-specific one instead)
+└── android/
+    ├── gradlew
+    ├── build.gradle
+    └── app/
+        └── src/main/java/com/example/voidroid/
+            ├── MainActivity.kt        # App screen: permission status, test notification, shortcuts
+            └── NotificationService.kt # Notification listener & socket sender
+```
+
+## Troubleshooting and logs
+
+The daemon writes two log files:
+
+| File | Contents |
+|------|----------|
+| `~/.cache/voidroid/daemon.log` | Daemon start-up, socket binds, received notification payloads, action clicks, and errors |
+| `~/.cache/voidroid/scrcpy.log` | scrcpy's stdout and stderr, for display or encoder problems |
+
+```bash
+tail -f ~/.cache/voidroid/daemon.log
+tail -f ~/.cache/voidroid/scrcpy.log
+journalctl --user -u voidroid -f
+```
+
+> `daemon.log` includes the titles and text of your notifications. It stays on your machine, but remove anything sensitive before pasting it into a bug report.
 
 | Symptom | Fix |
 |---------|-----|
-| Nothing appears on the desktop | Re-run `adb reverse tcp:5000 tcp:5000`. The tunnel drops whenever the cable is unplugged or `adb` restarts. |
-| `adb devices` shows `unauthorized` | Unlock the phone and accept the USB debugging prompt. |
-| `adb devices` shows nothing | Try another cable or port, and make sure the USB mode isn't "charging only". |
-| "Address already in use" on start | Another process holds port 5000. If you installed the background service, that is it: run `systemctl --user stop voidroid.service` first. Otherwise find it with `ss -ltnp \| grep 5000`. |
-| Nothing appears after plugging in, with the background service installed | Check `systemctl --user status voidroid.service` and `voidroid-reverse.service`. Confirm `adb devices` lists the phone as `device`, and that the vendor ID in `/etc/udev/rules.d/99-voidroid.rules` matches `lsusb`. |
-| Notification access toggle is greyed out | Use **Allow restricted settings** (see Easy Install). |
-| Notifications stop after a while | Set Voidroid's battery optimization to **Unrestricted** in Android settings. |
-| Garbled or missing banner and title after updating | The app and `server/notif.py` are from different releases. Update both to the same release. If you use the background service, restart it with `systemctl --user restart voidroid.service`. |
-| Generic icon for an app | The daemon looks for an icon named after the lowercase app name (for example `whatsapp`). If your icon theme has none, the desktop shows its default icon. |
-| Open App does nothing | Check that `scrcpy --version` reports 3.0 or newer and that `scrcpy` is on your `PATH`. Unlock the phone if it is locked, and check the daemon output (or `journalctl --user -u voidroid`) for scrcpy errors. |
+| Nothing appears on the desktop | Tap **Send test notification** in the app. If that fails, re-run `adb reverse tcp:5000 tcp:5000`. The tunnel drops whenever the cable is unplugged or `adb` restarts |
+| `adb devices` shows `unauthorized` | Unlock the phone and accept the USB debugging prompt |
+| `adb devices` shows nothing | Try another cable or port, and make sure the USB mode isn't "charging only" |
+| "Address already in use" on start | Another process holds port 5000. If you installed the background service, that is it: run `systemctl --user stop voidroid.service` first. Otherwise find it with `ss -ltnp \| grep 5000` |
+| Nothing appears after plugging in, with the background service installed | Check the status of `voidroid.service`, `voidroid-reverse.service`, and `adb-server.service`. Confirm `adb devices` lists the phone as `device`, and that the vendor ID in `/etc/udev/rules.d/99-voidroid.rules` matches `lsusb` |
+| Tunnel drops right after plugging in | Make sure `adb-server.service` is enabled and running. Re-run `bash system/install.sh` if you upgraded from before `v0.5.0-alpha` |
+| Notification Access toggle is greyed out | Use **Allow restricted settings** (see the Android 13+ note in the quick start) |
+| Notifications stop after a while | Set voidroid's battery optimization to **Unrestricted** in the app (**Battery Optimization** button) or in Android settings |
+| Generic icon for an app | The daemon looks for an icon named after the lowercase app name (for example `whatsapp`). If your icon theme has none, the desktop shows its default icon |
+| Open App does nothing | Check that `scrcpy --version` reports 3.0 or newer and that `scrcpy` is on your `PATH`. Unlock the phone if it is locked, and check `scrcpy.log` |
+| scrcpy runs (you hear audio) but no window appears | Check `scrcpy.log`. This happened on Wayland when the background service launched scrcpy without the desktop session's display variables. It is fixed in `v0.5.0-alpha`, so update and restart the service |
+| Banner or title looks wrong after updating | The app and `server/notif.py` are from different releases. Update both, then run `systemctl --user restart voidroid.service` |
 
-## Changelog
+## Updating
 
-### v0.4.0-alpha
+1. `git pull` in your clone.
+2. Install the new APK on the phone.
+3. If you use the background service, re-run `bash system/install.sh` (it is safe to repeat) and then `systemctl --user restart voidroid.service` so the daemon runs the new code.
 
-- **Open App button:** notifications now carry an **Open App** action (7-second timeout). Clicking it launches `scrcpy --start-app=<PackageName>` so only that app is mirrored, with the phone screen off and keyboard and mouse control from the desktop.
-- **Protocol:** wire format changed to `<PackageName>|<AppName>|<Title>|<MessageBody>`. The package name tells the host which app to launch. The app and daemon must be updated together.
-- **Threading:** each notification is handled in its own thread, so waiting on a click or a timeout no longer blocks incoming notifications.
-- **New dependency:** `scrcpy` 3.0 or newer on the host.
-
-### v0.3.0-alpha
-
-- **Background service:** `system/install.sh` installs a `systemd --user` service for the listener and a udev rule that runs `adb reverse` automatically when the phone is plugged in.
-- **Android app:** unchanged since `v0.2.0-alpha`.
-
-### v0.2.0-alpha
-
-- **Protocol:** wire format changed from `<DisplayTitle>|<MessageBody>` to `<AppName>|<Title>|<MessageBody>`, so the daemon can set the app banner and resolve icons from the system theme.
-- **Chat batching:** reads `EXTRA_MESSAGING_STYLE` / `android.messages` and `EXTRA_TEXT_LINES` to forward the exact latest message from WhatsApp, Telegram, Signal and similar apps.
-- **Deduplication:** now compares the message text within a 1000 ms window instead of dropping the whole payload, so rapid distinct messages are no longer swallowed.
-- **Daemon:** `server/notif.py` unpacks three fields and lowercases the app name for icon lookup. The app and daemon must be updated together.
-
-### v0.1.0-alpha
-
-- First release: Android notification listener, ADB reverse tunnel, and `notify-send` daemon.
+The daemon still understands messages from older apps as a fallback, but an older daemon may not understand a newer app. Update both together.
 
 ## Roadmap
 
@@ -323,6 +301,15 @@ The Android client pushes a single UTF-8 stream per notification event over the 
 - [ ] Direct D-Bus integration (`org.freedesktop.Notifications`) to remove `notify-send` subshell overhead
 - [ ] C implementation of the server daemon
 
+## Release notes
+
+**`v0.6.0-beta.1`** is the first beta, and the project is now officially lowercase: **voidroid**.
+
+- Redesigned Android app with a new icon, a dark theme, a live Notification Access indicator, a **Send test notification** button, a battery optimization shortcut, and a **View on GitHub** button
+- Single mirror window with instant app switching, a persistent `adb` server, Wayland fixes, and log files (from `v0.5.0-alpha`)
+
+Full history is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Contributing
 
-Issues and pull requests are welcome. This is an early alpha, so bug reports with your Android version and desktop environment are especially useful.
+Issues and pull requests are welcome. This is an early project, so bug reports with your Android version and desktop environment are especially useful.
