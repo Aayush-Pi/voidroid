@@ -1,38 +1,61 @@
 import socket
+import os
 import subprocess
 import threading
-import os
 
 HOST = "127.0.0.1"
 PORT = 5000
 
-def launch_scrcpy(pkg_name, app_name):
-    """Spawns an ephemeral, focused scrcpy instance."""
-    env = os.environ.copy()
-    
-    # Ensure Wayland and X11 display paths are present
-    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    env.setdefault("WAYLAND_DISPLAY", "wayland-0")
-    env.setdefault("DISPLAY", ":0")
+# Global tracker for active scrcpy process
+scrcpy_proc = None
+proc_lock = threading.Lock()
 
-    cmd = [
-        "scrcpy",
-        "--start-app={pkg_name}",
-        "--stay-awake",
-        "--turn-screen-off",
-        "--video-codec=h264",
-        "--window-title=voidroid:scrcpy"
-    ]
-    subprocess.Popen(cmd)
-    # log file
-    with open("/tmp/scrcpy_voidroid.log", "a") as log:
-        subprocess.Popen(cmd, env=env, stdout=log, stderr=log)
+def bring_app_to_front(pkg_name):
+    """Brings the specific target app to the foreground via ADB monkey."""
+    try:
+        # monkey sends an intent event to launch the package's default activity
+        subprocess.run(
+            ["adb", "shell", "monkey", "-p", pkg_name, "-c", "android.intent.category.LAUNCHER", "1"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
+    except Exception:
+        pass
+
+def launch_or_switch_scrcpy(pkg_name, app_name):
+    """Ensures only a single scrcpy window runs, switching apps if already open."""
+    global scrcpy_proc
+
+    # 1. Force wake and launch the target app on Android
+    bring_app_to_front(pkg_name)
+
+    with proc_lock:
+        # Check if an existing scrcpy window is still alive
+        if scrcpy_proc is not None and scrcpy_proc.poll() is None:
+            # An instance is already open: bringing the app to front above is enough!
+            return
+
+        # 2. Spawn a fresh singleton scrcpy instance
+        env = os.environ.copy()
+        env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+        env.setdefault("DISPLAY", ":0")
+
+        cmd = [
+            "scrcpy",
+            f"--start-app={pkg_name}",
+            "--stay-awake",
+            "--turn-screen-off",
+            f"--window-title=voidroid:scrcpy"
+        ]
+
+        scrcpy_proc = subprocess.Popen(cmd, env=env)
+        
 
 def dispatch_notification(pkg_name, app_name, title, body):
-    """Fires notify-send and listens for button click."""
     icon_name = app_name.strip().lower()
-    
-    # notify-send blocks until clicked or expired (-t 7000 = 7s)
+
     res = subprocess.run([
         "notify-send",
         "-a", app_name,
@@ -43,9 +66,12 @@ def dispatch_notification(pkg_name, app_name, title, body):
         body
     ], stdout=subprocess.PIPE, text=True)
 
-    # If the user clicked the action button, res.stdout contains 'open'
     if res.stdout.strip() == "open":
-        threading.Thread(target=launch_scrcpy, args=(pkg_name, app_name), daemon=True).start()
+        threading.Thread(
+            target=launch_or_switch_scrcpy,
+            args=(pkg_name, app_name),
+            daemon=True
+        ).start()
 
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
