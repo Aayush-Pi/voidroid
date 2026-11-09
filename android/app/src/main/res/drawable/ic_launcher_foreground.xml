@@ -4,24 +4,27 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M38,58 L32,64 A12,12 0 0,1 15,47 L25,37 A12,12 0 0,1 42,37 L46,41" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#38BDF8"
-        android:strokeWidth="6"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M70,50 L76,44 A12,12 0 0,0 93,61 L83,71 A12,12 0 0,0 66,71 L62,67" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"
-        android:strokeLineCap="round"
-        android:pathData="M38,70 L70,38" />
+
+    <!-- Two interlocked chain links, rotated 45° -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-45">
+
+        <!-- Link A -->
+        <path
+            android:pathData="M36,44 H48 A10,10 0 0 1 48,64 H36 A10,10 0 0 1 36,44 Z"
+            android:strokeColor="#38BDF8"
+            android:strokeWidth="6"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round" />
+
+        <!-- Link B -->
+        <path
+            android:pathData="M60,44 H72 A10,10 0 0 1 72,64 H60 A10,10 0 0 1 60,44 Z"
+            android:strokeColor="#818CF8"
+            android:strokeWidth="6"
+            android:strokeLineJoin="round"
+            android:strokeLineCap="round" />
+    </group>
 </vector>
