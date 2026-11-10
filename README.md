@@ -2,9 +2,9 @@
 
 voidroid sends your Android notifications to your Linux desktop over a USB cable. Click **Open App** on a notification to mirror just that app from your phone in its own window. It uses a plain TCP socket through an `adb reverse` tunnel, plus scrcpy for mirroring. No cloud, no account, no third-party services.
 
-> **Status:** `v0.6.0-beta.1` (beta). It works, but expect rough edges. See the [roadmap](#roadmap) and the [changelog](CHANGELOG.md).
+> **Status:** `v0.6.1-beta.2` (beta). It works, but expect rough edges. See the [roadmap](#roadmap) and the [changelog](CHANGELOG.md).
 >
-> **Platform:** Linux only for now. Windows support is planned.
+> **Platform:** Linux only.
 
 ## Features
 
@@ -21,10 +21,10 @@ voidroid sends your Android notifications to your Linux desktop over a USB cable
 ### 1. On the phone
 
 1. Enable Developer options and **USB debugging**.
-2. Install the APK from the [latest release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.6.0-beta.1). Open the file on the phone and allow **Install unknown apps** when asked, or install over USB:
+2. Install the APK from the [latest release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.6.1-beta.2). Open the file on the phone and allow **Install unknown apps** when asked, or install over USB:
 
    ```bash
-   adb install -r voidroid-v0.6.0-beta.1.apk
+   adb install -r voidroid-v0.6.1-beta.2.apk
    ```
 
 3. Open **voidroid** and tap the permission prompt to grant **Notification Access**.
@@ -104,6 +104,7 @@ scrcpy --start-app=<PackageName> --stay-awake --turn-screen-off --window-title="
 - The phone's physical screen stays off.
 - The button disappears after 7 seconds, along with the notification.
 - Only one mirror window is ever open. If you click **Open App** on another notification while a window is already running, the daemon does not start a second scrcpy. It switches the existing session to that app with `adb shell monkey -p <PackageName> -c android.intent.category.LAUNCHER 1`, so the video stream keeps running.
+- When you close the mirror window, the daemon waits 300 ms for scrcpy to release the display and then puts the phone to sleep (`adb shell input keyevent KEYCODE_SLEEP`). The phone ends up properly locked, so the first press of the power button or fingerprint sensor wakes it.
 - Each notification is handled in its own thread, so waiting for a click never blocks the next notification.
 
 **Limitations**
@@ -282,6 +283,7 @@ journalctl --user -u voidroid -f
 | Generic icon for an app | The daemon looks for an icon named after the lowercase app name (for example `whatsapp`). If your icon theme has none, the desktop shows its default icon |
 | Open App does nothing | Check that `scrcpy --version` reports 3.0 or newer and that `scrcpy` is on your `PATH`. Unlock the phone if it is locked, and check `scrcpy.log` |
 | scrcpy runs (you hear audio) but no window appears | Check `scrcpy.log`. This happened on Wayland when the background service launched scrcpy without the desktop session's display variables. It is fixed in `v0.5.0-alpha`, so update and restart the service |
+| Phone needs two power-button presses to wake after closing the mirror window | Fixed in `v0.6.1-beta.2`. Update the repo and restart the service. The daemon now puts the phone to sleep when the scrcpy window closes |
 | Banner or title looks wrong after updating | The app and `server/notif.py` are from different releases. Update both, then run `systemctl --user restart voidroid.service` |
 
 ## Updating
@@ -297,13 +299,15 @@ The daemon still understands messages from older apps as a fallback, but an olde
 - [x] Linux systemd user service + udev auto-connect hook
 - [x] Open App button on notifications, with on-demand app mirroring and device control through scrcpy
 - [ ] More notification actions (dismiss, reply)
-- [ ] Windows support (daemon, notifications, and an installer)
+- ❌ ~~Windows support~~ (dropped: voidroid stays Linux-only)
 - [ ] Direct D-Bus integration (`org.freedesktop.Notifications`) to remove `notify-send` subshell overhead
 - [ ] C implementation of the server daemon
 
 ## Release notes
 
-**`v0.6.0-beta.1`** is the first beta, and the project is now officially lowercase: **voidroid**.
+**`v0.6.1-beta.2`** fixes the phone needing two power-button presses after you close the mirror window. voidroid now puts the phone to sleep when the scrcpy window closes, so the first press wakes it.
+
+**`v0.6.0-beta.1`** was the first beta, and the project became officially lowercase: **voidroid**.
 
 - Redesigned Android app with a new icon, a dark theme, a live Notification Access indicator, a **Send test notification** button, a battery optimization shortcut, and a **View on GitHub** button
 - Single mirror window with instant app switching, a persistent `adb` server, Wayland fixes, and log files (from `v0.5.0-alpha`)

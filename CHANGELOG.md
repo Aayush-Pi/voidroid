@@ -2,6 +2,21 @@
 
 All notable changes to voidroid. The newest release is first.
 
+## v0.6.1-beta.2
+
+Focus: the phone's lock state after you close the mirror window.
+
+**Daemon (`server/notif.py`)**
+
+- **Problem:** closing the desktop scrcpy window left Android's display in an inconsistent state. scrcpy runs with `--turn-screen-off`, so the display was blank while Android stayed awake internally. Picking up the phone took two presses of the power button: one for Android to realize it should sleep and lock, and a second to wake the lock screen.
+- **Fix:** a watcher thread (`monitor_scrcpy`) now starts with every scrcpy launch. When the scrcpy process ends (for example when you close the window), it waits 300 ms for `scrcpy-server` to release the display, then runs `adb shell input keyevent KEYCODE_SLEEP`. The phone locks immediately, and the first power-button press or fingerprint touch wakes it.
+- **Non-blocking:** the watcher runs in its own daemon thread, so exit cleanup never stalls the socket listener.
+- **Flags:** removed `--power-off-on-close` from the scrcpy arguments. It raced with `adb` teardown and kept `scrcpy-server` from restoring the display cleanly.
+
+**Android app**
+
+- `versionCode` and `versionName` are now `0.6.1-beta.2` in `android/app/build.gradle`. The notification listener logic is unchanged, and the app was rebuilt for version parity and asset tagging. Release asset: `voidroid-v0.6.1-beta.2.apk`.
+
 ## v0.6.0-beta.1
 
 First beta. The project name is now officially lowercase: **voidroid**.
