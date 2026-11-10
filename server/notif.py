@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 import logging
+import time
 from pathlib import Path
 
 HOST = "127.0.0.1"
@@ -22,6 +23,29 @@ logging.basicConfig(
 # Global tracker for active scrcpy process
 scrcpy_proc = None
 proc_lock = threading.Lock()
+
+def monitor_scrcpy(proc):
+    """
+    Blocks until scrcpy exits, waits briefly for scrcpy-server on the phone
+    to release the hardware composer, then puts the OS cleanly into sleep state.
+    """
+    proc.wait()
+    logging.info("scrcpy instance closed. Syncing phone sleep state...")
+
+    # Give the Android scrcpy-server jar 300ms to finish restoring SurfaceFlinger
+    time.sleep(0.3)
+
+    try:
+        # KEYCODE_SLEEP (223) cleanly locks the OS so the next physical button 
+        # press wakes the screen on the first try instead of locking it first.
+        subprocess.run(
+            ["adb", "shell", "input", "keyevent", "KEYCODE_SLEEP"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
+    except Exception as e:
+        logging.error(f"Failed to send sleep event: {e}")
 
 def bring_app_to_front(pkg_name):
     """Brings the specific target app to the foreground via ADB monkey."""
@@ -64,6 +88,12 @@ def launch_or_switch_scrcpy(pkg_name, app_name):
             scrcpy_log = open(LOG_DIR / "scrcpy.log", "a")
             scrcpy_proc = subprocess.Popen(cmd, env=env, stdout=scrcpy_log, stderr=scrcpy_log)
             logging.info(f"Spawned singleton scrcpy instance for {pkg_name} (PID: {scrcpy_proc.pid})")
+            
+            threading.Thread(
+                target=monitor_scrcpy,
+                args=(scrcpy_proc,),
+                daemon=True
+            ).start()
         except Exception as e:
             logging.error(f"Failed to launch scrcpy: {e}")
 
