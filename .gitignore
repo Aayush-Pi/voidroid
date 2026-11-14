@@ -11,3 +11,6 @@ local.properties
 *.aab
 .idea/
 *.iml
+
+# Local reference context
+CONTEXT.md

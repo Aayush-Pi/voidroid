@@ -1,6 +1,11 @@
 package com.example.voidroid
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.DialogInterface
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -159,6 +164,7 @@ class MainActivity : Activity() {
         // Text links under the buttons
         val linkBattery = textLink("Battery optimization") { openBatterySettings() }
         val linkTest = textLink("Send test notification") { sendTestNotification() }
+        val linkLogs = textLink("View RAM logs") { showLogsDialog() }
 
         val linksRow = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -169,6 +175,7 @@ class MainActivity : Activity() {
             ).apply { topMargin = dp(12) }
             addView(linkBattery)
             addView(linkTest)
+            addView(linkLogs)
         }
 
         // Setup hint
@@ -261,6 +268,47 @@ class MainActivity : Activity() {
         }
     }
 
+    // Shows the in-memory circular log buffer (up to 50 recent events, no disk writes)
+    private fun showLogsDialog() {
+        val logView = TextView(this).apply {
+            text = NotificationLogStore.dumpNewestFirst()
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(TEXT_PRIMARY)
+            setTextIsSelectable(true)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+
+        val scrollView = ScrollView(this).apply {
+            addView(logView)
+        }
+
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("RAM Logs (last 50, newest first)")
+            .setView(scrollView)
+            .setPositiveButton("Refresh", null)
+            .setNeutralButton("Copy", null)
+            .setNegativeButton("Clear", null)
+            .create()
+
+        dialog.show()
+
+        // Override button click listeners after show() so Refresh/Copy/Clear keep the dialog open
+        dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+            logView.text = NotificationLogStore.dumpNewestFirst()
+        }
+        dialog.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener {
+            val text = NotificationLogStore.dumpNewestFirst()
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("voidroid-logs", text))
+            Toast.makeText(this, "Logs copied", Toast.LENGTH_SHORT).show()
+        }
+        dialog.getButton(DialogInterface.BUTTON_NEGATIVE).setOnClickListener {
+            NotificationLogStore.clear()
+            logView.text = NotificationLogStore.dumpNewestFirst()
+        }
+    }
+
     // Sends a test payload through the same socket the service uses.
     // Format matches the service: pkg|appName|title|text
     private fun sendTestNotification() {
@@ -271,8 +319,13 @@ class MainActivity : Activity() {
                     socket.getOutputStream().write(payload.toByteArray(Charsets.UTF_8))
                     socket.getOutputStream().flush()
                 }
+                NotificationLogStore.log("TEST", "SENT_OK")
                 true
             } catch (e: Exception) {
+                NotificationLogStore.log(
+                    "TEST",
+                    "SOCK_ERR ${e.javaClass.simpleName}: ${e.message ?: "unknown"}"
+                )
                 false
             }
             runOnUiThread {

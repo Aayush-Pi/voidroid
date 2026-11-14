@@ -98,7 +98,9 @@ def launch_or_switch_scrcpy(pkg_name, app_name):
             logging.error(f"Failed to launch scrcpy: {e}")
 
 def dispatch_notification(pkg_name, app_name, title, body):
-    icon_name = app_name.strip().lower()
+    app_name = app_name.strip() or "Voidroid"
+    title = title.strip() or app_name
+    icon_name = app_name.lower()
 
     try:
         res = subprocess.run([
@@ -107,6 +109,7 @@ def dispatch_notification(pkg_name, app_name, title, body):
             "-i", icon_name,
             "--action=open=Open App",
             "-t", "7000",
+            "--",
             title,
             body
         ], stdout=subprocess.PIPE, text=True)
@@ -121,6 +124,17 @@ def dispatch_notification(pkg_name, app_name, title, body):
     except Exception as e:
         logging.error(f"Failed to dispatch notify-send: {e}")
 
+def read_socket_payload(conn):
+    """Reads a complete UTF-8 notification payload until client closes the socket."""
+    conn.settimeout(2.0)
+    chunks = []
+    while True:
+        chunk = conn.recv(4096)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", errors="replace").strip()
+
 def main():
     logging.info("Starting Voidroid notification daemon...")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -132,7 +146,11 @@ def main():
         while True:
             conn, addr = s.accept()
             with conn:
-                data = conn.recv(4096).decode("utf-8", errors="replace").strip()
+                try:
+                    data = read_socket_payload(conn)
+                except Exception as e:
+                    logging.error(f"Failed reading socket payload: {e}")
+                    continue
                 if not data:
                     continue
 
