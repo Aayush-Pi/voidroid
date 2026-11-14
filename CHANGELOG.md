@@ -2,6 +2,39 @@
 
 All notable changes to voidroid. The newest release is first.
 
+## v0.6.2-beta.3
+
+Focus: reliable delivery over USB, correct handling of stacked chat notifications, a new app ID, and a debug log viewer.
+
+**Breaking: new app ID**
+
+- `applicationId` changed from `com.example.voidroid` to `io.github.aayushpi.voidroid`. The `namespace` is still `com.example.voidroid`, so the source folders did not move.
+- Android treats this as a different app. If you are on `v0.6.1-beta.2` or earlier, uninstall the old app first (`adb uninstall com.example.voidroid`), otherwise you end up with two copies. Grant Notification Access to the new app again.
+- `versionCode` is now `4` and `versionName` is `0.6.2-beta.3`. The release APK is signed with a dedicated release keystore (`voidroid-release.jks`, loaded from the gitignored `android/keystore.properties`). Release asset: `voidroid-v0.6.2-beta.3.apk`.
+
+**Wire protocol and delivery (`NotificationService.kt`, `MainActivity.kt`, `server/notif.py`)**
+
+- **JSON framing:** notifications are now one UTF-8 JSON object terminated by a NUL byte: `{"pkg": "<PackageName>", "app": "<AppName>", "title": "<Title>", "body": "<MessageBody>"}\0`. This replaces the pipe-delimited string as the primary format.
+- **Acknowledgement and retries (`sendPayloadWithAck`):** after sending to `127.0.0.1:5000`, the app waits for `OK\n` from `notif.py` and retries up to 3 times (150 ms, then 300 ms backoff) on a socket error or a missing acknowledgement. This fixes dropped notifications caused by Android closing the socket before `adbd` finished the `OPEN`/`OKAY` handshake of the reverse tunnel.
+- **Special characters:** titles and bodies keep `|`, quotes, newlines, and Unicode exactly as they were instead of having `|` stripped.
+- **Daemon:** `parse_payload` tries NUL-terminated JSON first and falls back to the legacy pipe-delimited formats (4, 3, 2, or 1 fields). Each accepted connection is handled in its own daemon thread (`handle_client`), and empty socket closes are logged. `notify-send` is called with `--` before the title and body, so text starting with `-` is never parsed as a flag.
+
+**Stacked and grouped notifications (`NotificationService.kt`)**
+
+- **Per-notification tracking:** the global `lastSentMessageText` check is replaced by tracking per `sbn.key` (`sentByKey`, cleared in `onNotificationRemoved`). Unread conversations that WhatsApp or Android re-post no longer re-spam, and different chats sending identical text are no longer suppressed.
+- **Latest message by timestamp:** `extractLatestMessage` scans every `Notification.EXTRA_MESSAGES` (`MessagingStyle`) bundle and picks the one with the highest `time` (the later index wins a tie) instead of assuming array order. If the latest bundle is a media attachment with blank text, it falls back to `EXTRA_TEXT`, `EXTRA_BIG_TEXT`, and then `"Attachment"`.
+- **Group summary fallback:** a `FLAG_GROUP_SUMMARY` notification carrying structured `EXTRA_MESSAGES` or `EXTRA_TEXT_LINES` is sent after a 250 ms delay if no child notification from that group fires within 500 ms.
+
+**In-app debug log viewer (`NotificationLogStore.kt`, `MainActivity.kt`, `NotificationService.kt`)**
+
+- New `NotificationLogStore.kt`: a thread-safe, in-memory circular buffer of the last 50 events (`ArrayDeque`, nothing written to disk). It records listener connect and disconnect, drop and duplicate reasons, `SENT (try=N)`, and `SOCK_ERR`.
+- New **View RAM logs** button in `MainActivity` opens a dialog, newest first, with **Refresh**, **Copy**, and **Clear**, so you can debug on the phone without `adb logcat`.
+
+**Docs**
+
+- README restructured: quick install first, details in collapsible sections, a reference section for the protocol and project structure, and a "Help test the beta" section.
+- New install guidance for phones where Play Protect's Enhanced Fraud Protection blocks sideloading: install over USB with `adb`, or pause Play Protect briefly.
+
 ## v0.6.1-beta.2
 
 Focus: the phone's lock state after you close the mirror window.
