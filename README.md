@@ -421,3 +421,7 @@ Full history is in [CHANGELOG.md](CHANGELOG.md).
 ## Contributing
 
 Issues and pull requests are welcome. This is an early project, so bug reports with your Android version and desktop environment are especially useful.
+
+## License
+
+Licensed under the [GNU General Public License v3.0](LICENSE) (GPL-3.0).
