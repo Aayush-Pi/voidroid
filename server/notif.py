@@ -125,15 +125,57 @@ def dispatch_notification(pkg_name, app_name, title, body):
         logging.error(f"Failed to dispatch notify-send: {e}")
 
 def read_socket_payload(conn):
-    """Reads a complete UTF-8 notification payload until client closes the socket."""
+    """Reads a UTF-8 payload terminated by NUL (\\0) or client EOF."""
     conn.settimeout(2.0)
     chunks = []
+    ack_requested = False
     while True:
         chunk = conn.recv(4096)
         if not chunk:
             break
+        nul_idx = chunk.find(b"\x00")
+        if nul_idx != -1:
+            chunks.append(chunk[:nul_idx])
+            ack_requested = True
+            break
         chunks.append(chunk)
-    return b"".join(chunks).decode("utf-8", errors="replace").strip()
+    payload = b"".join(chunks).decode("utf-8", errors="replace").strip()
+    return payload, ack_requested
+
+def handle_client(conn):
+    """Reads one notification payload, ACKs framed clients, and dispatches notify-send."""
+    with conn:
+        try:
+            data, ack_requested = read_socket_payload(conn)
+        except Exception as e:
+            logging.error(f"Failed reading socket payload: {e}")
+            return
+
+        if not data:
+            logging.warning("Accepted connection closed with empty payload")
+            return
+
+        if ack_requested:
+            try:
+                conn.sendall(b"OK\n")
+            except Exception as e:
+                logging.warning(f"Failed sending ACK: {e}")
+
+        parts = data.split("|", 3)
+        if len(parts) == 4:
+            pkg_name, app_name, title, body = parts
+        elif len(parts) == 3:
+            pkg_name = "android"
+            app_name, title, body = parts
+        elif len(parts) == 2:
+            pkg_name, app_name = "android", "Voidroid"
+            title, body = parts
+        else:
+            pkg_name, app_name = "android", "Voidroid"
+            title, body = "Notification", parts[0]
+
+        logging.info(f"Incoming: [{app_name}] {title} - {body[:30]}...")
+        dispatch_notification(pkg_name, app_name, title, body)
 
 def main():
     logging.info("Starting Voidroid notification daemon...")
@@ -145,35 +187,11 @@ def main():
 
         while True:
             conn, addr = s.accept()
-            with conn:
-                try:
-                    data = read_socket_payload(conn)
-                except Exception as e:
-                    logging.error(f"Failed reading socket payload: {e}")
-                    continue
-                if not data:
-                    continue
-
-                parts = data.split("|", 3)
-                if len(parts) == 4:
-                    pkg_name, app_name, title, body = parts
-                elif len(parts) == 3:
-                    pkg_name = "android"
-                    app_name, title, body = parts
-                elif len(parts) == 2:
-                    pkg_name, app_name = "android", "Voidroid"
-                    title, body = parts
-                else:
-                    pkg_name, app_name = "android", "Voidroid"
-                    title, body = "Notification", parts[0]
-
-                logging.info(f"Incoming: [{app_name}] {title} - {body[:30]}...")
-
-                threading.Thread(
-                    target=dispatch_notification,
-                    args=(pkg_name, app_name, title, body),
-                    daemon=True
-                ).start()
+            threading.Thread(
+                target=handle_client,
+                args=(conn,),
+                daemon=True
+            ).start()
 
 if __name__ == "__main__":
     main()

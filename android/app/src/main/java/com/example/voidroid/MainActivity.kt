@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.concurrent.thread
 
@@ -314,13 +315,22 @@ class MainActivity : Activity() {
     private fun sendTestNotification() {
         thread {
             val ok = try {
-                Socket("127.0.0.1", 5000).use { socket ->
-                    val payload = "$packageName|voidroid|Test|Hello from voidroid"
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(InetSocketAddress("127.0.0.1", 5000), 2000)
+                    socket.soTimeout = 2000
+                    val payload = "$packageName|voidroid|Test|Hello from voidroid\u0000"
                     socket.getOutputStream().write(payload.toByteArray(Charsets.UTF_8))
                     socket.getOutputStream().flush()
+                    val ack = socket.getInputStream().read()
+                    if (ack == 'O'.code) {
+                        NotificationLogStore.log("TEST", "SENT_OK")
+                        true
+                    } else {
+                        NotificationLogStore.log("TEST", "SOCK_ERR no_ack(read=$ack)")
+                        false
+                    }
                 }
-                NotificationLogStore.log("TEST", "SENT_OK")
-                true
             } catch (e: Exception) {
                 NotificationLogStore.log(
                     "TEST",

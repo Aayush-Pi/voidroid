@@ -188,26 +188,54 @@ class NotificationService : NotificationListenerService() {
 
         val payload = "$pkgName|$appName|$title|${extracted.text}"
         thread {
-            try {
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress(HOST, PORT), SOCKET_TIMEOUT_MS)
-                    socket.soTimeout = SOCKET_TIMEOUT_MS
-                    val bytes = payload.toByteArray(Charsets.UTF_8)
-                    socket.getOutputStream().write(bytes)
-                    socket.getOutputStream().flush()
-                }
+            val (attempt, error) = sendPayloadWithAck(payload)
+            if (error == null) {
                 NotificationLogStore.log(
                     "SENT",
                     "[$appName] \"${preview(title)}\" - \"${preview(extracted.text)}\" " +
-                        "(msgs=${extracted.messageCount} lines=${extracted.lineCount} sum=$isGroupSummary)"
+                        "(msgs=${extracted.messageCount} lines=${extracted.lineCount} sum=$isGroupSummary try=$attempt)"
                 )
-            } catch (e: Exception) {
+            } else {
                 NotificationLogStore.log(
                     "SOCK_ERR",
-                    "[$appName] \"${preview(title)}\" ${e.javaClass.simpleName}: ${e.message ?: "unknown"}"
+                    "[$appName] \"${preview(title)}\" tries=$attempt $error"
                 )
             }
         }
+    }
+
+    private fun sendPayloadWithAck(payload: String): Pair<Int, String?> {
+        val bytes = (payload.replace("\u0000", "") + "\u0000").toByteArray(Charsets.UTF_8)
+        var lastError: String? = null
+        for (attempt in 1..3) {
+            try {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(InetSocketAddress(HOST, PORT), SOCKET_TIMEOUT_MS)
+                    socket.soTimeout = SOCKET_TIMEOUT_MS
+                    socket.getOutputStream().write(bytes)
+                    socket.getOutputStream().flush()
+
+                    // Wait for daemon ACK ("OK\n") before closing so adbd doesn't drop
+                    // buffered data via premature CLSE while OPEN/OKAY is in flight.
+                    val ack = socket.getInputStream().read()
+                    if (ack == 'O'.code) {
+                        return Pair(attempt, null)
+                    }
+                    lastError = "no_ack(read=$ack)"
+                }
+            } catch (e: Exception) {
+                lastError = "${e.javaClass.simpleName}: ${e.message ?: "unknown"}"
+            }
+            if (attempt < 3) {
+                try {
+                    Thread.sleep(150L * attempt)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }
+        return Pair(3, lastError ?: "unknown")
     }
 
     private fun duplicateReason(
