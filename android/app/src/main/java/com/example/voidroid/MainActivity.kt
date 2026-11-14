@@ -24,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.concurrent.thread
@@ -319,7 +320,12 @@ class MainActivity : Activity() {
                     socket.tcpNoDelay = true
                     socket.connect(InetSocketAddress("127.0.0.1", 5000), 2000)
                     socket.soTimeout = 2000
-                    val payload = "$packageName|voidroid|Test|Hello from voidroid\u0000"
+                    val payload = JSONObject().apply {
+                        put("pkg", packageName)
+                        put("app", "voidroid")
+                        put("title", "Test")
+                        put("body", "Hello from voidroid")
+                    }.toString() + "\u0000"
                     socket.getOutputStream().write(payload.toByteArray(Charsets.UTF_8))
                     socket.getOutputStream().flush()
                     val ack = socket.getInputStream().read()

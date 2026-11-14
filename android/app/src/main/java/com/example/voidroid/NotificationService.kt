@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.Socket
 import kotlin.concurrent.thread
@@ -186,7 +187,12 @@ class NotificationService : NotificationListenerService() {
             return
         }
 
-        val payload = "$pkgName|$appName|$title|${extracted.text}"
+        val payload = JSONObject().apply {
+            put("pkg", pkgName)
+            put("app", appName)
+            put("title", title)
+            put("body", extracted.text)
+        }.toString()
         thread {
             val (attempt, error) = sendPayloadWithAck(payload)
             if (error == null) {
@@ -292,7 +298,7 @@ class NotificationService : NotificationListenerService() {
     }
 
     private fun sanitizeField(value: String): String =
-        value.replace('|', '/').replace('\n', ' ').replace('\r', ' ').trim()
+        value.replace('\n', ' ').replace('\r', ' ').trim()
 
     private fun extractLatestMessage(extras: Bundle): ExtractedMessage {
         // Inspect MessagingStyle array (WhatsApp, Signal, Telegram), picking newest by timestamp

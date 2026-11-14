@@ -4,6 +4,7 @@ import subprocess
 import threading
 import logging
 import time
+import json
 from pathlib import Path
 
 HOST = "127.0.0.1"
@@ -142,6 +143,29 @@ def read_socket_payload(conn):
     payload = b"".join(chunks).decode("utf-8", errors="replace").strip()
     return payload, ack_requested
 
+def parse_payload(data):
+    """Parses JSON payloads with fallback to legacy pipe-delimited strings."""
+    if data.startswith("{"):
+        try:
+            obj = json.loads(data)
+            if isinstance(obj, dict):
+                pkg_name = str(obj.get("pkg") or "android")
+                app_name = str(obj.get("app") or "Voidroid")
+                title = str(obj.get("title") or app_name)
+                body = str(obj.get("body") or "")
+                return pkg_name, app_name, title, body
+        except json.JSONDecodeError as e:
+            logging.warning(f"Invalid JSON payload, falling back to legacy parser: {e}")
+
+    parts = data.split("|", 3)
+    if len(parts) == 4:
+        return parts[0], parts[1], parts[2], parts[3]
+    if len(parts) == 3:
+        return "android", parts[0], parts[1], parts[2]
+    if len(parts) == 2:
+        return "android", "Voidroid", parts[0], parts[1]
+    return "android", "Voidroid", "Notification", parts[0]
+
 def handle_client(conn):
     """Reads one notification payload, ACKs framed clients, and dispatches notify-send."""
     with conn:
@@ -161,18 +185,7 @@ def handle_client(conn):
             except Exception as e:
                 logging.warning(f"Failed sending ACK: {e}")
 
-        parts = data.split("|", 3)
-        if len(parts) == 4:
-            pkg_name, app_name, title, body = parts
-        elif len(parts) == 3:
-            pkg_name = "android"
-            app_name, title, body = parts
-        elif len(parts) == 2:
-            pkg_name, app_name = "android", "Voidroid"
-            title, body = parts
-        else:
-            pkg_name, app_name = "android", "Voidroid"
-            title, body = "Notification", parts[0]
+        pkg_name, app_name, title, body = parse_payload(data)
 
         logging.info(f"Incoming: [{app_name}] {title} - {body[:30]}...")
         dispatch_notification(pkg_name, app_name, title, body)
