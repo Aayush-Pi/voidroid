@@ -14,3 +14,6 @@ local.properties
 
 # Local reference context
 CONTEXT.md
+
+*.jks
+keystore.properties
