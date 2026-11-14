@@ -197,6 +197,27 @@ systemctl --user status adb-server.service
 > If the background service is running, it already holds port 5000. Stop it with `systemctl --user stop voidroid.service` before running `python3 server/notif.py` by hand.
 
 <details>
+<summary><strong>Manual setup (or multiple Android phones)</strong></summary>
+
+If you prefer not to run `system/install.sh` (or connect Android phones from different USB vendors), you can install the systemd user units and the static udev rule manually. Unlike `install.sh`, which generates a tighter single-vendor `idVendor` rule, `system/99-voidroid.rules` is broader—it matches any USB ADB interface (`class=ff`, `subclass=42`, `protocol=01`) regardless of vendor ID.
+
+Run from a clone at `~/voidroid`:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp system/adb-server.service system/voidroid.service system/voidroid-reverse.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now adb-server.service voidroid.service
+systemctl --user enable voidroid-reverse.service
+
+sudo cp system/99-voidroid.rules /etc/udev/rules.d/99-voidroid.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+</details>
+
+<details>
 <summary><strong>Running without the background service</strong></summary>
 
 Plug in the phone and run:
@@ -292,7 +313,7 @@ voidroid/
 │   ├── adb-server.service          # systemd user unit that keeps the adb server running
 │   ├── voidroid.service            # systemd user unit for the listener
 │   ├── voidroid-reverse.service    # systemd user unit for `adb reverse`
-│   └── 99-voidroid.rules           # Static udev rule (install.sh generates a vendor-specific one instead)
+│   └── 99-voidroid.rules           # Static universal ADB udev rule for manual/multi-phone setup (install.sh generates a vendor-specific one)
 └── android/
     ├── gradlew
     ├── build.gradle
