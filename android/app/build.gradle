@@ -17,8 +17,8 @@ android {
         applicationId "io.github.aayushpi.voidroid"
         minSdk 26
         targetSdk 34
-        versionCode 4
-        versionName "0.6.2-beta.3"
+        versionCode 5
+        versionName "1.0.0-reshuffled"
     }
 
     signingConfigs {
