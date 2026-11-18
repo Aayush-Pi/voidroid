@@ -1,5 +1,6 @@
 import socket
 import os
+import stat
 import subprocess
 import threading
 import logging
@@ -25,13 +26,118 @@ logging.basicConfig(
 scrcpy_proc = None
 proc_lock = threading.Lock()
 
+GUI_ENV_KEYS = (
+    "XDG_RUNTIME_DIR",
+    "WAYLAND_DISPLAY",
+    "DISPLAY",
+    "XAUTHORITY",
+    "XDG_CURRENT_DESKTOP",
+    "XDG_SESSION_TYPE",
+)
+
+def _is_valid_wayland_socket(runtime_dir, name):
+    """Returns True if Wayland display name resolves to a socket in runtime_dir."""
+    if not name:
+        return False
+    sock = Path(name) if os.path.isabs(name) else Path(runtime_dir) / name
+    try:
+        return stat.S_ISSOCK(sock.stat().st_mode)
+    except OSError:
+        return False
+
+def _find_wayland_socket(runtime_dir):
+    """Finds the newest active wayland-* socket inside XDG_RUNTIME_DIR."""
+    candidates = []
+    try:
+        for entry in Path(runtime_dir).iterdir():
+            if not entry.name.startswith("wayland-") or entry.name.endswith(".lock"):
+                continue
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            if stat.S_ISSOCK(st.st_mode):
+                candidates.append((st.st_mtime, entry.name))
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+def _find_x11_display(uid):
+    """Finds the newest X11 display (:N) socket owned by uid."""
+    x11_dir = Path("/tmp/.X11-unix")
+    candidates = []
+    try:
+        for entry in x11_dir.iterdir():
+            if not entry.name.startswith("X") or not entry.name[1:].isdigit():
+                continue
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            if st.st_uid == uid and stat.S_ISSOCK(st.st_mode):
+                candidates.append((st.st_mtime, f":{entry.name[1:]}"))
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+def build_gui_env():
+    """
+    Builds a subprocess environment with live desktop session display variables.
+    Systemd user services started at login often predate compositor env imports,
+    so we refresh from `systemctl --user show-environment` and probe live sockets
+    instead of falling back to hardcoded wayland-0/:0 (which triggers SDL offscreen).
+    """
+    uid = os.getuid()
+    env = os.environ.copy()
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
+
+    try:
+        res = subprocess.run(
+            ["systemctl", "--user", "show-environment"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=2,
+        )
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                key, sep, val = line.partition("=")
+                if sep and key in GUI_ENV_KEYS and val:
+                    env[key] = val
+    except Exception as e:
+        logging.debug(f"Could not query systemd user environment: {e}")
+
+    runtime_dir = env["XDG_RUNTIME_DIR"]
+    if not _is_valid_wayland_socket(runtime_dir, env.get("WAYLAND_DISPLAY")):
+        detected_wayland = _find_wayland_socket(runtime_dir)
+        if detected_wayland:
+            env["WAYLAND_DISPLAY"] = detected_wayland
+        else:
+            env.pop("WAYLAND_DISPLAY", None)
+
+    if not env.get("DISPLAY"):
+        detected_x11 = _find_x11_display(uid)
+        if detected_x11:
+            env["DISPLAY"] = detected_x11
+
+    # Never let SDL2 silently fall back to headless 'offscreen'/'dummy' drivers
+    # and leave an invisible ghost scrcpy process holding the singleton lock.
+    env.setdefault("SDL_VIDEODRIVER", "wayland,x11")
+    return env
+
 def monitor_scrcpy(proc):
     """
     Blocks until scrcpy exits, waits briefly for scrcpy-server on the phone
     to release the hardware composer, then puts the OS cleanly into sleep state.
     """
     proc.wait()
-    logging.info("scrcpy instance closed. Syncing phone sleep state...")
+    logging.info(f"scrcpy instance closed (code={proc.returncode}). Syncing phone sleep state...")
 
     # Give the Android scrcpy-server jar 300ms to finish restoring SurfaceFlinger
     time.sleep(0.3)
@@ -72,10 +178,10 @@ def launch_or_switch_scrcpy(pkg_name, app_name):
             logging.info(f"Scrcpy already active. App switched to {pkg_name}.")
             return
 
-        env = os.environ.copy()
-        env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-        env.setdefault("WAYLAND_DISPLAY", "wayland-0")
-        env.setdefault("DISPLAY", ":0")
+        env = build_gui_env()
+        if not env.get("WAYLAND_DISPLAY") and not env.get("DISPLAY"):
+            logging.error("No active Wayland or X11 display found; aborting scrcpy launch.")
+            return
 
         cmd = [
             "scrcpy",
@@ -86,10 +192,13 @@ def launch_or_switch_scrcpy(pkg_name, app_name):
         ]
 
         try:
-            scrcpy_log = open(LOG_DIR / "scrcpy.log", "a")
-            scrcpy_proc = subprocess.Popen(cmd, env=env, stdout=scrcpy_log, stderr=scrcpy_log)
-            logging.info(f"Spawned singleton scrcpy instance for {pkg_name} (PID: {scrcpy_proc.pid})")
-            
+            with open(LOG_DIR / "scrcpy.log", "a") as scrcpy_log:
+                scrcpy_proc = subprocess.Popen(cmd, env=env, stdout=scrcpy_log, stderr=scrcpy_log)
+            logging.info(
+                f"Spawned singleton scrcpy instance for {pkg_name} "
+                f"(PID: {scrcpy_proc.pid}, WAYLAND_DISPLAY={env.get('WAYLAND_DISPLAY')}, DISPLAY={env.get('DISPLAY')})"
+            )
+
             threading.Thread(
                 target=monitor_scrcpy,
                 args=(scrcpy_proc,),
