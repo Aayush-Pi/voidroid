@@ -2,6 +2,32 @@
 
 All notable changes to voidroid. The newest release is first.
 
+## v1.0.0-reshuffled ("Reshuffled")
+
+First stable release of **voidroid** (codename **Reshuffled**).
+
+> **Important:** `scrcpy` **3.0 or newer** is strictly required for the **Open App** mirroring integration. It will **not** work on any `scrcpy` version older than `3.0` (`--start-app` was introduced in 3.0; check online or [Genymobile/scrcpy](https://github.com/Genymobile/scrcpy) for install instructions on your distro).
+
+**Daemon & Wayland/X11 reliability (`server/notif.py`)**
+
+- **Live display environment resolution (`build_gui_env`):** `voidroid.service` often starts at login before the desktop compositor imports `WAYLAND_DISPLAY` and `DISPLAY`. Instead of freezing startup `os.environ` or falling back to hardcoded `wayland-0` / `:0`, the daemon now queries `systemctl --user show-environment` on every launch and falls back to probing active `wayland-*` sockets in `XDG_RUNTIME_DIR` and user-owned `/tmp/.X11-unix/X*` sockets.
+- **No more silent ghost `scrcpy` sessions:** sets `SDL_VIDEODRIVER=wayland,x11` by default so SDL2 cannot silently fall back to headless `offscreen`/`dummy` drivers when a display socket is unreachable, and aborts cleanly if neither a Wayland nor X11 display is found.
+- **Better diagnostics & cleanup:** logs the resolved `WAYLAND_DISPLAY`/`DISPLAY` on spawn, logs `scrcpy` exit code in `monitor_scrcpy`, and closes the parent's `scrcpy.log` file descriptor immediately via a `with open(...)` context manager.
+
+**System & udev rules (`system/99-voidroid.rules`, `README.md`)**
+
+- **Narrowed universal ADB rule:** `system/99-voidroid.rules` now matches `ENV{DEVTYPE}=="usb_interface"` with `bInterfaceClass=="ff"`, `bInterfaceSubClass=="42"`, `bInterfaceProtocol=="01"` and uses `ENV{SYSTEMD_USER_WANTS}+=` so unrelated USB devices are ignored while multi-vendor Android phones still trigger `voidroid-reverse.service`.
+- **Manual / multi-phone guide:** added a collapsible setup section in `README.md` for installing the systemd units and universal udev rule without `install.sh`.
+
+**Licensing & packaging**
+
+- Added standard GNU GPLv3 copyright headers across `server/notif.py`, `system/install.sh`, `MainActivity.kt`, `NotificationService.kt`, and `NotificationLogStore.kt`, and added a License section to `README.md`.
+- `versionCode` is now `5` and `versionName` is `1.0.0-reshuffled` in `android/app/build.gradle`. Release asset: `voidroid-v1.0.0-reshuffled.apk`.
+
+**Acknowledgements**
+
+- Huge thanks to the friends who tested voidroid during the beta cycle across different phones and Linux setups—your bug reports and feedback directly shaped this `1.0` stable release.
+
 ## v0.6.2-beta.3
 
 Focus: reliable delivery over USB, correct handling of stacked chat notifications, a new app ID, and a debug log viewer.

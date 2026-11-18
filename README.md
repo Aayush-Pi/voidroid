@@ -2,11 +2,11 @@
 
 Your Android notifications on your Linux desktop, over a USB cable. Click **Open App** on a notification to mirror just that app from your phone in its own window. voidroid uses a plain TCP socket through an `adb reverse` tunnel, plus scrcpy for mirroring. No cloud, no account, no third-party services.
 
-> **Status:** `v0.6.2-beta.3` (beta). It works, but expect rough edges. **Beta testers are welcome**, see [Help test the beta](#help-test-the-beta).
+> **Status:** `v1.0.0-reshuffled` (**Reshuffled**, first stable release).
 >
 > **Platform:** Linux only.
 
-**Contents:** [Features](#features) · [How it works](#how-it-works) · [Install](#install) · [Requirements](#requirements) · [Using voidroid](#using-voidroid) · [Background service](#background-service) · [Reference](#reference) · [Troubleshooting](#troubleshooting) · [Updating](#updating) · [Help test the beta](#help-test-the-beta) · [Roadmap](#roadmap)
+**Contents:** [Features](#features) · [How it works](#how-it-works) · [Install](#install) · [Requirements](#requirements) · [Using voidroid](#using-voidroid) · [Background service](#background-service) · [Reference](#reference) · [Troubleshooting](#troubleshooting) · [Updating](#updating) · [Feedback & acknowledgements](#feedback--acknowledgements) · [Roadmap](#roadmap)
 
 ## Features
 
@@ -55,19 +55,19 @@ The Android app listens for notifications and sends each one to `127.0.0.1:5000`
 
 ### 1. On the phone
 
-**Enable Developer options and USB debugging first.** Then install the APK from the [latest release](https://github.com/Aayush-Pi/voidroid/releases/tag/v0.6.2-beta.3) using one of these two options.
+**Enable Developer options and USB debugging first.** Then install the APK from the [latest release](https://github.com/Aayush-Pi/voidroid/releases/tag/v1.0.0-reshuffled) using one of these two options.
 
 **Option A (recommended): install over USB with adb**
 
 ```bash
-adb install -r voidroid-v0.6.2-beta.3.apk
+adb install -r voidroid-v1.0.0-reshuffled.apk
 ```
 
 Some phones, with Google Play Protect's **Enhanced Fraud Protection** switched on (it can be on by default in some regions), block installing voidroid straight from the browser or a file manager. The reason is that voidroid asks to read your notifications. The error looks like *"This app can request access to sensitive data… App not installed"*, with no "Install anyway" option. Installing over USB with `adb` avoids this block and lets you keep Play Protect on.
 
 **Option B: install on the phone itself**
 
-1. Download `voidroid-v0.6.2-beta.3.apk` from the release page, and only from there.
+1. Download `voidroid-v1.0.0-reshuffled.apk` from the release page, and only from there.
 2. Open **Google Play Store → profile icon → Play Protect → Settings (gear icon)** and turn off **Scan apps with Play Protect**.
 3. Install the APK from your file manager or Downloads.
 4. Turn **Scan apps with Play Protect** back on straight away. Play Protect will not remove an app that is already installed.
@@ -101,8 +101,10 @@ Plug in the phone and tap **Send test notification** in the app. A notification 
 - Python 3
 - `adb` (Android Debug Bridge)
 - `libnotify-bin` (`notify-send`)
-- `scrcpy` **3.0 or newer** (the Open App button uses `--start-app`, which was added in 3.0)
+- `scrcpy` **3.0 or newer (strictly required)** — the **Open App** integration will **not** work on any `scrcpy` version older than `3.0` (`--start-app` was added in 3.0; check online for more details if your distro packages an older build)
 - `systemd` user services, if you want the background service
+
+> **Important (`scrcpy` < 3.0 unsupported):** Many Linux distro repositories still ship `scrcpy` 1.x or 2.x. voidroid's **Open App** mirroring **will not work on any `scrcpy` version older than 3.0**. Run `scrcpy --version` before troubleshooting, and check online (or the [scrcpy Linux install guide](https://github.com/Genymobile/scrcpy/blob/master/doc/linux.md)) to install `3.0` or newer.
 
 **Android phone**
 
@@ -159,6 +161,7 @@ scrcpy --start-app=<PackageName> --stay-awake --turn-screen-off --window-title="
 
 **Limitations**
 
+- **Requires `scrcpy` 3.0+:** **Open App** will **not** work on any `scrcpy` version older than `3.0` (check `scrcpy --version` and see [Installing scrcpy 3.0 or newer](#requirements) or online docs for details).
 - If an app has no launchable main activity (some internal system dialogs, for example), `scrcpy --start-app` may not be able to open that view.
 - If the phone is locked with a PIN, pattern, or biometric, you need to unlock it once inside the scrcpy window before the app shows.
 - **Open App** needs the package name, so it only works for notifications sent in the JSON format or the four-field legacy format (see [Wire protocol](#wire-protocol)).
@@ -359,8 +362,8 @@ journalctl --user -u voidroid -f
 | Notification Access toggle is greyed out | Use **Allow restricted settings** (see the Android 13+ note in [Install](#install)) |
 | Notifications stop after a while | Set voidroid's battery optimization to **Unrestricted** in the app (**Battery Optimization** button) or in Android settings |
 | Generic icon for an app | The daemon looks for an icon named after the lowercase app name (for example `whatsapp`). If your icon theme has none, the desktop shows its default icon |
-| Open App does nothing | Check that `scrcpy --version` reports 3.0 or newer and that `scrcpy` is on your `PATH`. Unlock the phone if it is locked, and check `scrcpy.log` |
-| scrcpy runs (you hear audio) but no window appears | Check `scrcpy.log`. This happened on Wayland when the background service launched scrcpy without the desktop session's display variables. It is fixed in `v0.5.0-alpha`, so update and restart the service |
+| Open App does nothing | Check that `scrcpy --version` reports **3.0 or newer** (versions older than 3.0 are not supported) and that `scrcpy` is on your `PATH`. Unlock the phone if it is locked, and check `scrcpy.log` |
+| scrcpy runs (you hear audio or see `Texture:` in logs) but no window appears | Update to `v1.0.0-reshuffled` and restart `voidroid.service`. Fixed dynamic Wayland/X11 socket discovery (`systemctl --user show-environment` + live socket probe) and blocked SDL2's headless `offscreen` fallback |
 | Phone needs two power-button presses to wake after closing the mirror window | Fixed in `v0.6.1-beta.2`. Update the repo and restart the service |
 | Banner or title looks wrong after updating | The app and `server/notif.py` are from different releases. Update both, then run `systemctl --user restart voidroid.service` |
 
@@ -380,18 +383,18 @@ journalctl --user -u voidroid -f
 
 The daemon still understands messages from older apps as a fallback, but an older daemon does not understand the new JSON format. Update both together.
 
-## Help test the beta
+## Feedback & acknowledgements
 
-voidroid has been tested by 2 people so far, on 2 Linux setups and 4 phones (two running One UI, one running Funtouch OS, and one other). That is a small sample, so testers on other combinations are very welcome. All new features are done for the first stable release, so the beta is about finding bugs and gaps.
+Thank you to the friends who tested voidroid during the beta releases across different phones (One UI, Funtouch OS, and more) and Linux setups—your testing and bug reports got us to `1.0`!
 
-[Open an issue](https://github.com/Aayush-Pi/voidroid/issues) and include:
+If you run into an issue, [open an issue](https://github.com/Aayush-Pi/voidroid/issues) and include:
 
 - Phone model and Android version
 - Linux distribution, desktop environment, and Wayland or X11
-- `scrcpy --version`
+- `scrcpy --version` (must be **3.0+**)
 - What you expected, what happened, and the relevant lines from `daemon.log` or the app's **View RAM logs** (with personal text removed)
 
-Reports that something worked are useful too, especially on phones from other brands and on distros other than Debian.
+Reports on phones from other brands and distros other than Debian are always welcome.
 
 ## Roadmap
 
@@ -403,6 +406,14 @@ Reports that something worked are useful too, especially on phones from other br
 - [ ] C implementation of the server daemon
 
 ## Release notes
+
+**`v1.0.0-reshuffled` (Reshuffled)** is the first stable release of voidroid.
+
+- **Requires `scrcpy` 3.0+:** `scrcpy` integration will **not** work on any version older than `3.0` (`--start-app` was introduced in 3.0; check online for install options if your distro ships an older package).
+- **Fixed recurring ghost `scrcpy` windows on Wayland/Hyprland:** `server/notif.py` now queries `systemctl --user show-environment` and probes live `wayland-*` / user-owned X11 sockets at launch time instead of using hardcoded `wayland-0`/`:0`, and sets `SDL_VIDEODRIVER=wayland,x11` so SDL2 cannot silently fall back to `offscreen`.
+- **Universal ADB udev rule & manual setup docs:** narrowed `system/99-voidroid.rules` to match ADB USB interfaces (`ff/42/01`) with `SYSTEMD_USER_WANTS+=` and documented multi-phone/manual installation.
+- **GPLv3 headers & version bump:** added GPLv3 license headers across source files and bumped Android `versionCode` to `5` (`1.0.0-reshuffled`).
+- **Thanks:** huge thanks to the friends who beta-tested voidroid on their devices and Linux setups!
 
 **`v0.6.2-beta.3`** makes delivery more reliable and installs cleaner.
 
